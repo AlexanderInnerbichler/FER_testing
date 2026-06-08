@@ -103,6 +103,29 @@ def build_gallery(cam_width: int) -> np.ndarray:
     return strip
 
 
+clear_button = (0, 0, 0, 0)  # x1, y1, x2, y2 — updated each frame for hit-testing
+
+
+def clear_captured():
+    captured.clear()
+    captured_conf.clear()
+    for name in os.listdir(SAVE_DIR):
+        if name.endswith(".jpg"):
+            os.remove(os.path.join(SAVE_DIR, name))
+    print("Cleared captured emotions.")
+
+
+def on_mouse(event, mx, my, flags, param):
+    if event == cv2.EVENT_LBUTTONDOWN:
+        x1, y1, x2, y2 = clear_button
+        if x1 <= mx <= x2 and y1 <= my <= y2:
+            clear_captured()
+
+
+WIN_NAME = f"Facial Emotion Detection [{args.model}]"
+cv2.namedWindow(WIN_NAME)
+cv2.setMouseCallback(WIN_NAME, on_mouse)
+
 while True:
     ret, frame = cap.read()
     if not ret:
@@ -139,11 +162,22 @@ while True:
     cv2.putText(display, f"Captured: {done}/{total}", (8, 22),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.65, (200, 200, 200), 1)
 
-    cv2.imshow(f"Facial Emotion Detection [{args.model}]", display)
+    bx2, by1 = display.shape[1] - 10, 10
+    bx1, by2 = bx2 - 90, by1 + 26
+    clear_button = (bx1, by1, bx2, by2)
+    cv2.rectangle(display, (bx1, by1), (bx2, by2), (40, 40, 160), -1)
+    cv2.rectangle(display, (bx1, by1), (bx2, by2), (80, 80, 220), 1)
+    cv2.putText(display, "Clear", (bx1 + 14, by2 - 8),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+
+    cv2.imshow(WIN_NAME, display)
     frame_count += 1
 
-    if cv2.waitKey(1) & 0xFF == ord("q"):
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord("q"):
         break
+    if key == ord("c"):
+        clear_captured()
 
 cap.release()
 cv2.destroyAllWindows()
