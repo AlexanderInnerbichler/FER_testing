@@ -1,0 +1,11 @@
+# ST model zoo clone (huge, has its own git history + datasets)
+stm32ai-modelzoo-services/
+
+# Loose ONNX export experiments (superseded by the STM32 model)
+emotion_model.onnx
+emotion_model.onnx.data
+emotion_model_opset*.onnx
+emotion_model_opset*.onnx.data
+
+# Local captures
+captured_emotions/
