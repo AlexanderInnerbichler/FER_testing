@@ -6,7 +6,7 @@ from PIL import Image
 from transformers import AutoImageProcessor, AutoModelForImageClassification
 
 MODEL_ID = "dima806/facial_emotions_image_detection"
-THRESHOLD = 0.85
+THRESHOLD = 0.30
 THUMB_SIZE = 100  # px — size of each emotion thumbnail in the gallery strip
 SAVE_DIR = "captured_emotions"
 
@@ -18,9 +18,10 @@ model = AutoModelForImageClassification.from_pretrained(MODEL_ID)
 model.eval()
 
 ALL_EMOTIONS: list[str] = [model.config.id2label[i] for i in range(len(model.config.id2label))]
-captured: dict[str, np.ndarray] = {}  # emotion -> BGR face crop (THUMB_SIZE x THUMB_SIZE)
+captured: dict[str, np.ndarray] = {}  # emotion -> BGR face crop
+captured_conf: dict[str, float] = {}  # emotion -> best confidence so far
 
-print(f"Model ready. Capturing one sample per emotion above {THRESHOLD:.0%}. Press 'q' to quit.")
+print(f"Model ready. Capturing best sample per emotion above {THRESHOLD:.0%}. Press 'q' to quit.")
 
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
@@ -82,8 +83,9 @@ while True:
             confidence = probs[top_idx].item()
             last_labels.append((label, confidence, x, y, w, h))
 
-            if confidence >= THRESHOLD and label not in captured:
+            if confidence >= THRESHOLD and confidence > captured_conf.get(label, 0):
                 captured[label] = face_img.copy()
+                captured_conf[label] = confidence
                 path = os.path.join(SAVE_DIR, f"{label}.jpg")
                 cv2.imwrite(path, face_img)
                 print(f"Saved {label} ({confidence:.1%}) -> {path}")
