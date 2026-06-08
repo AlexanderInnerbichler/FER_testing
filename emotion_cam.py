@@ -1,27 +1,69 @@
 import os
+import argparse
 import cv2
 import numpy as np
-import torch
-from PIL import Image
-from transformers import AutoImageProcessor, AutoModelForImageClassification
 
-MODEL_ID = "dima806/facial_emotions_image_detection"
+VIT_MODEL_ID = "dima806/facial_emotions_image_detection"
+STM32_MODEL_PATH = "stm32_model/fer2013_mobilenetv2_a035_128_float.keras"
 THRESHOLD = 0.30
 THUMB_SIZE = 100  # px — size of each emotion thumbnail in the gallery strip
 SAVE_DIR = "captured_emotions"
 
+
+def load_vit():
+    """Big HuggingFace ViT (PyTorch). Returns (classify, class_names)."""
+    import torch
+    from PIL import Image
+    from transformers import AutoImageProcessor, AutoModelForImageClassification
+
+    extractor = AutoImageProcessor.from_pretrained(VIT_MODEL_ID)
+    model = AutoModelForImageClassification.from_pretrained(VIT_MODEL_ID)
+    model.eval()
+    class_names = [model.config.id2label[i] for i in range(len(model.config.id2label))]
+
+    def classify(face_bgr):
+        pil_img = Image.fromarray(cv2.cvtColor(face_bgr, cv2.COLOR_BGR2RGB))
+        inputs = extractor(images=pil_img, return_tensors="pt")
+        with torch.no_grad():
+            logits = model(**inputs).logits
+        probs = torch.softmax(logits, dim=-1)[0]
+        top_idx = int(probs.argmax())
+        return class_names[top_idx], float(probs[top_idx])
+
+    return classify, class_names
+
+
+def load_stm32():
+    """Newly trained MobileNetV2 a035 (TensorFlow). Returns (classify, class_names)."""
+    os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+    import tensorflow as tf
+
+    class_names = ["angry", "disgust", "fear", "happy", "neutral", "sad", "surprise"]
+    model = tf.keras.models.load_model(STM32_MODEL_PATH)
+
+    def classify(face_bgr):
+        rgb = cv2.cvtColor(cv2.resize(face_bgr, (128, 128)), cv2.COLOR_BGR2RGB)
+        x = rgb.astype("float32") / 127.5 - 1.0
+        probs = model(x[None, ...], training=False).numpy()[0]  # softmax already applied
+        top_idx = int(probs.argmax())
+        return class_names[top_idx], float(probs[top_idx])
+
+    return classify, class_names
+
+
+parser = argparse.ArgumentParser(description="Live facial emotion detection")
+parser.add_argument("--model", choices=["vit", "stm32"], default="vit",
+                    help="vit = big HuggingFace ViT (default); stm32 = newly trained MobileNetV2")
+args = parser.parse_args()
+
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-print("Loading model...")
-extractor = AutoImageProcessor.from_pretrained(MODEL_ID)
-model = AutoModelForImageClassification.from_pretrained(MODEL_ID)
-model.eval()
-
-ALL_EMOTIONS: list[str] = [model.config.id2label[i] for i in range(len(model.config.id2label))]
+print(f"Loading {args.model} model...")
+classify, ALL_EMOTIONS = load_vit() if args.model == "vit" else load_stm32()
 captured: dict[str, np.ndarray] = {}  # emotion -> BGR face crop
 captured_conf: dict[str, float] = {}  # emotion -> best confidence so far
 
-print(f"Model ready. Capturing best sample per emotion above {THRESHOLD:.0%}. Press 'q' to quit.")
+print(f"Model ready ({args.model}). Capturing best sample per emotion above {THRESHOLD:.0%}. Press 'q' to quit.")
 
 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
@@ -73,14 +115,7 @@ while True:
         last_labels = []
         for (x, y, w, h) in faces:
             face_img = frame[y:y+h, x:x+w]
-            pil_img = Image.fromarray(cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB))
-            inputs = extractor(images=pil_img, return_tensors="pt")
-            with torch.no_grad():
-                logits = model(**inputs).logits
-            probs = torch.softmax(logits, dim=-1)[0]
-            top_idx = probs.argmax().item()
-            label = model.config.id2label[top_idx]
-            confidence = probs[top_idx].item()
+            label, confidence = classify(face_img)
             last_labels.append((label, confidence, x, y, w, h))
 
             if confidence >= THRESHOLD and confidence > captured_conf.get(label, 0):
@@ -104,7 +139,7 @@ while True:
     cv2.putText(display, f"Captured: {done}/{total}", (8, 22),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.65, (200, 200, 200), 1)
 
-    cv2.imshow("Facial Emotion Detection", display)
+    cv2.imshow(f"Facial Emotion Detection [{args.model}]", display)
     frame_count += 1
 
     if cv2.waitKey(1) & 0xFF == ord("q"):

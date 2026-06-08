@@ -14,12 +14,21 @@ Facial emotion recognition, from a desktop webcam demo to a quantized model depl
 
 ```bash
 pip install -r requirements.txt
-python emotion_cam.py        # press 'q' to quit
+python emotion_cam.py                 # big ViT (default); press 'q' to quit
+python emotion_cam.py --model stm32   # the newly trained MobileNetV2 (needs TensorFlow)
 ```
 
-Uses the `dima806/facial_emotions_image_detection` ViT. It detects faces (Haar cascade), classifies
-each, and keeps a gallery strip of the best capture per emotion (captures at ≥30% confidence,
-overwriting when a higher-confidence sample appears). Saves crops to `captured_emotions/`.
+It detects faces (Haar cascade), classifies each, and keeps a gallery strip of the best capture per
+emotion (captures at ≥30% confidence, overwriting when a higher-confidence sample appears). Saves
+crops to `captured_emotions/`.
+
+`--model` switches the classifier:
+- **`vit`** (default) — the big `dima806/facial_emotions_image_detection` ViT (PyTorch).
+- **`stm32`** — the int8-bound MobileNetV2 from [`stm32_model/`](stm32_model/) (TensorFlow). This is
+  the model that runs on the board, so the demo shows what to expect on-device.
+
+Each backbone's dependencies are imported lazily, so you only need PyTorch for `vit` or TensorFlow
+for `stm32` (the `stm32ai` conda env from §2 has both).
 
 > The ViT (~343 MB) is great on a PC but **cannot run on an STM32** — it's too large and its
 > transformer ops map poorly to the Neural-ART NPU. That motivated training the model below.
